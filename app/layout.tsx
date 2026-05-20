@@ -8,25 +8,16 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 const playfair = Playfair_Display({ subsets: ["latin"], variable: "--font-playfair" });
 
 export const metadata: Metadata = {
-  title: 'Élégance Décor - Admin Dashboard',
-  description: 'Luxury wedding and event decoration management',
-  generator: 'v0.app',
+  title: 'Kohinoor Decorations — Back Office',
+  description: 'Kohinoor Decorations back office — manage event galleries and video links.',
   icons: {
     icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
+      { url: '/logo.png', type: 'image/png' },
+      { url: '/logo.png', sizes: '32x32', type: 'image/png' },
+      { url: '/logo.png', sizes: '192x192', type: 'image/png' },
     ],
-    apple: '/apple-icon.png',
+    apple: [{ url: '/logo.png', type: 'image/png' }],
+    shortcut: '/logo.png',
   },
 }
 
