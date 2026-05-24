@@ -39,7 +39,7 @@ export function validateImageFile(file: File): string | null {
     return "Please upload a JPG, PNG, WebP, or GIF image.";
   }
   if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    return "Each image must be 5MB or smaller.";
+    return "Each image must be 10MB or smaller.";
   }
   return null;
 }

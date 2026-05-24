@@ -31,7 +31,7 @@ export function mapStorageError(
     lower.includes("exceeded") ||
     lower.includes("too large")
   ) {
-    return "This file is too large. Each image must be 5MB or smaller.";
+    return "This file is too large. Each image must be 10MB or smaller.";
   }
 
   if (lower.includes("invalid api key")) {

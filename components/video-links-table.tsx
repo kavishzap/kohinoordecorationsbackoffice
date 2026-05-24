@@ -5,7 +5,6 @@ import { motion } from "framer-motion";
 import {
   AlertCircle,
   CheckCircle2,
-  ExternalLink,
   Link2,
   Loader2,
   Plus,
@@ -22,6 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { RowActionsMenu } from "@/components/row-actions-menu";
 import {
   Table,
   TableBody,
@@ -272,7 +272,7 @@ export function VideoLinksTable() {
               <TableHead className="w-12 pl-4">#</TableHead>
               <TableHead>Link</TableHead>
               <TableHead className="hidden w-32 sm:table-cell">Added</TableHead>
-              <TableHead className="w-44 pr-4 text-right">Actions</TableHead>
+              <TableHead className="w-16 pr-4 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -326,36 +326,19 @@ export function VideoLinksTable() {
                   <TableCell className="hidden text-muted-foreground sm:table-cell">
                     {formatAddedDate(video.created_at)}
                   </TableCell>
-                  <TableCell className="pr-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="rounded-lg"
-                        onClick={() =>
-                          window.open(
-                            video.video_url,
-                            "_blank",
-                            "noopener,noreferrer"
-                          )
-                        }
-                      >
-                        <ExternalLink className="mr-1.5 h-4 w-4" />
-                        View
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => setVideoToDelete(video)}
-                        disabled={saving || deletingId !== null}
-                      >
-                        <Trash2 className="mr-1.5 h-4 w-4" />
-                        Delete
-                      </Button>
-                    </div>
+                  <TableCell className="pr-4 text-right">
+                    <RowActionsMenu
+                      disabled={saving || deletingId !== null}
+                      viewLabel="Open link"
+                      onView={() =>
+                        window.open(
+                          video.video_url,
+                          "_blank",
+                          "noopener,noreferrer"
+                        )
+                      }
+                      onDelete={() => setVideoToDelete(video)}
+                    />
                   </TableCell>
                 </TableRow>
               ))

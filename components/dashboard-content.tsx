@@ -2,14 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import {
-  AlertCircle,
-  HardDrive,
-  Images,
-  Link2,
-  Loader2,
-  PieChart,
-} from "lucide-react";
+import { AlertCircle, HardDrive, Images, Loader2, PieChart } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import {
   fetchDashboardHeadlineKpis,
@@ -36,16 +29,22 @@ export function DashboardContent() {
   const [kpis, setKpis] = useState<DashboardHeadlineKpis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [storageNote, setStorageNote] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       setLoading(true);
-      const { kpis: data, error: loadError } = await fetchDashboardHeadlineKpis();
+      const {
+        kpis: data,
+        error: loadError,
+        storageError,
+      } = await fetchDashboardHeadlineKpis();
       if (cancelled) return;
       setKpis(data ?? getEmptyHeadlineKpis());
       setError(loadError ?? null);
+      setStorageNote(storageError ?? null);
       setLoading(false);
     }
 
@@ -58,24 +57,19 @@ export function DashboardContent() {
   const stats = kpis
     ? [
         {
-          title: "Total images",
-          value: kpis.totalImages,
+          title: "Decoration groups",
+          value: kpis.totalGroups,
           icon: Images,
         },
         {
-          title: "Storage used",
+          title: "Storage used (R2)",
           value: formatFileSize(kpis.storageUsedBytes),
           icon: HardDrive,
         },
         {
-          title: "Gallery capacity",
-          value: `${kpis.gallerySlotsUsed} / ${kpis.gallerySlotsMax}`,
+          title: "Sections",
+          value: `${kpis.sectionsCount} active`,
           icon: PieChart,
-        },
-        {
-          title: "Video links",
-          value: `${kpis.videoLinks} / ${kpis.videoLinksMax}`,
-          icon: Link2,
         },
       ]
     : [];
@@ -91,7 +85,7 @@ export function DashboardContent() {
           Dashboard
         </h1>
         <p className="text-muted-foreground">
-          Overview of your Kohinoor decoration gallery and video links.
+          Overview of your Kohinoor decoration groups and R2 storage.
         </p>
       </motion.div>
 
@@ -105,9 +99,9 @@ export function DashboardContent() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {loading
-          ? Array.from({ length: 4 }).map((_, index) => (
+          ? Array.from({ length: 3 }).map((_, index) => (
               <StatCardSkeleton key={index} index={index} />
             ))
           : stats.map((stat, index) => (
@@ -122,9 +116,15 @@ export function DashboardContent() {
       </div>
 
       {!loading && kpis && (
-        <p className={cn("text-center text-xs text-muted-foreground sm:text-left")}>
-          Gallery is {kpis.galleryPercent}% full across {kpis.gallerySlotsMax}{" "}
-          available image slots (7 sections × 10 images).
+        <p
+          className={cn(
+            "text-center text-xs text-muted-foreground sm:text-left",
+            storageNote && "text-amber-700 dark:text-amber-400"
+          )}
+        >
+          {storageNote
+            ? storageNote
+            : `${kpis.totalGroups} group${kpis.totalGroups === 1 ? "" : "s"} across ${kpis.sectionsCount} sections · ${formatFileSize(kpis.storageUsedBytes)} on Cloudflare R2`}
         </p>
       )}
     </div>

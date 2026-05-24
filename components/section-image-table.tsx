@@ -1,18 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import {
   AlertCircle,
   CheckCircle2,
-  Eye,
-  ImageIcon,
+  ChevronLeft,
+  ChevronRight,
+  FolderOpen,
   Loader2,
   Plus,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -22,12 +24,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { GroupFormModal } from "@/components/group-form-modal";
+import { RowActionsMenu } from "@/components/row-actions-menu";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -36,20 +47,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { MAX_SECTION_IMAGES } from "@/lib/section-images/constants";
-import { formatFileSize } from "@/lib/section-images/format";
-import {
-  deleteSectionImage,
-  loadSectionImages,
-  uploadSectionImage,
-} from "@/lib/section-images/service";
-import type { SectionImageRecord } from "@/lib/section-images/types";
+import { formatGroupPrice } from "@/lib/groups/format";
+import { deleteSectionGroup, loadSectionGroups } from "@/lib/groups/service";
+import type { DecorationGroupRecord } from "@/lib/groups/types";
 import { cn } from "@/lib/utils";
 
 interface SectionImageTableProps {
   section: string;
   title: string;
 }
+
+const PAGE_SIZE_OPTIONS = [5, 10, 50, 100] as const;
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 
 type StatusMessage = {
   type: "success" | "error" | "info";
@@ -89,36 +98,66 @@ function StatusBanner({ status }: { status: StatusMessage }) {
 }
 
 export function SectionImageTable({ section, title }: SectionImageTableProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [images, setImages] = useState<SectionImageRecord[]>([]);
+  const [groups, setGroups] = useState<DecorationGroupRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [previewImage, setPreviewImage] = useState<SectionImageRecord | null>(
+  const [previewGroup, setPreviewGroup] = useState<DecorationGroupRecord | null>(
     null
   );
-  const [imageToDelete, setImageToDelete] = useState<SectionImageRecord | null>(
+  const [groupToDelete, setGroupToDelete] = useState<DecorationGroupRecord | null>(
     null
   );
   const [status, setStatus] = useState<StatusMessage | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<{
-    current: number;
-    total: number;
-  } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<"create" | "edit">("create");
+  const [editingGroup, setEditingGroup] = useState<DecorationGroupRecord | null>(
+    null
+  );
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(10);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  const remainingSlots = MAX_SECTION_IMAGES - images.length;
-  const canAddMore = remainingSlots > 0;
+  const totalPages = Math.max(1, Math.ceil(groups.length / pageSize));
 
-  const refreshImages = useCallback(
+  const paginatedGroups = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return groups.slice(start, start + pageSize);
+  }, [groups, page, pageSize]);
+
+  const pageIds = useMemo(
+    () => paginatedGroups.map((g) => g.id),
+    [paginatedGroups]
+  );
+
+  const allOnPageSelected =
+    pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const someOnPageSelected =
+    pageIds.some((id) => selectedIds.has(id)) && !allOnPageSelected;
+
+  function openCreateForm() {
+    setFormMode("create");
+    setEditingGroup(null);
+    setFormOpen(true);
+  }
+
+  function openEditForm(group: DecorationGroupRecord) {
+    setFormMode("edit");
+    setEditingGroup(group);
+    setFormOpen(true);
+  }
+
+  const refreshGroups = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!options?.silent) setLoading(true);
-      const { images: data, error } = await loadSectionImages(section);
-      setImages(data);
+      const { groups: data, error } = await loadSectionGroups(section);
+      setGroups(data);
       if (error && !options?.silent) {
         setStatus({
           type: "error",
-          title: "Could not load images",
+          title: "Could not load groups",
           message: error,
         });
       }
@@ -128,83 +167,105 @@ export function SectionImageTable({ section, title }: SectionImageTableProps) {
   );
 
   useEffect(() => {
-    refreshImages();
-  }, [refreshImages]);
+    refreshGroups();
+  }, [refreshGroups]);
 
-  async function handleFiles(fileList: FileList | null) {
-    if (!fileList?.length) return;
+  useEffect(() => {
+    setPage(1);
+    setSelectedIds(new Set());
+  }, [section]);
 
-    const files = Array.from(fileList).slice(0, remainingSlots);
-    if (files.length < fileList.length) {
-      setStatus({
-        type: "info",
-        title: "Some files skipped",
-        message: `Only ${remainingSlots} slot${remainingSlots === 1 ? "" : "s"} left. Extra files were not added.`,
-      });
-    } else {
-      setStatus(null);
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
     }
+  }, [page, totalPages]);
 
-    setUploading(true);
-    setUploadProgress({ current: 0, total: files.length });
+  function toggleRow(id: string, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
 
-    let added = 0;
+  function togglePageSelection(checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of pageIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  async function confirmBulkDelete() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    setBulkDeleting(true);
+    setDeleteError(null);
+    setStatus(null);
+
+    let deleted = 0;
     let lastError: string | null = null;
 
-    for (let i = 0; i < files.length; i++) {
-      setUploadProgress({ current: i + 1, total: files.length });
-
-      const { error } = await uploadSectionImage(
-        section,
-        files[i],
-        images.length + added
-      );
-
+    for (const id of ids) {
+      const { error } = await deleteSectionGroup(id);
       if (error) {
         lastError = error;
         break;
       }
-
-      added += 1;
+      deleted += 1;
     }
 
-    setUploadProgress(null);
-    await refreshImages({ silent: true });
-    setLoading(false);
+    setBulkDeleting(false);
+    setBulkDeleteOpen(false);
+
+    if (previewGroup && ids.includes(previewGroup.id)) {
+      setPreviewGroup(null);
+    }
+
+    clearSelection();
+    await refreshGroups({ silent: true });
 
     if (lastError) {
       setStatus({
-        type: added > 0 ? "info" : "error",
-        title: added > 0 ? "Upload partly failed" : "Upload failed",
+        type: deleted > 0 ? "info" : "error",
+        title: deleted > 0 ? "Some groups not deleted" : "Delete failed",
         message:
-          added > 0
-            ? `${added} of ${files.length} image(s) uploaded. ${lastError}`
+          deleted > 0
+            ? `${deleted} of ${ids.length} deleted. ${lastError}`
             : lastError,
       });
-    } else if (added > 0) {
-      setStatus({
-        type: "success",
-        title: "Upload complete",
-        message:
-          added === 1
-            ? "Your image was uploaded successfully."
-            : `All ${added} images were uploaded successfully.`,
-      });
+      return;
     }
 
-    setUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    setStatus({
+      type: "success",
+      title: "Groups deleted",
+      message:
+        deleted === 1
+          ? "1 group was removed."
+          : `${deleted} groups were removed.`,
+    });
   }
 
   async function confirmDelete() {
-    if (!imageToDelete) return;
+    if (!groupToDelete) return;
 
-    const record = imageToDelete;
+    const record = groupToDelete;
     setDeletingId(record.id);
     setDeleteError(null);
     setStatus(null);
 
-    const { error } = await deleteSectionImage(record);
+    const { error } = await deleteSectionGroup(record.id);
 
     if (error) {
       setDeleteError(error);
@@ -212,16 +273,21 @@ export function SectionImageTable({ section, title }: SectionImageTableProps) {
       return;
     }
 
-    setImageToDelete(null);
+    setGroupToDelete(null);
     setDeleteError(null);
-    if (previewImage?.id === record.id) {
-      setPreviewImage(null);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(record.id);
+      return next;
+    });
+    if (previewGroup?.id === record.id) {
+      setPreviewGroup(null);
     }
-    await refreshImages({ silent: true });
+    await refreshGroups({ silent: true });
     setStatus({
       type: "success",
-      title: "Image deleted",
-      message: "The image was removed successfully.",
+      title: "Group deleted",
+      message: `"${record.name}" was removed.`,
     });
     setDeletingId(null);
   }
@@ -239,207 +305,332 @@ export function SectionImageTable({ section, title }: SectionImageTableProps) {
         </h1>
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <ImageIcon className="h-4 w-4" />
+            <FolderOpen className="h-4 w-4" />
             <span>
-              {images.length} / {MAX_SECTION_IMAGES} images
+              {groups.length} group{groups.length === 1 ? "" : "s"}
             </span>
           </p>
           <Button
             type="button"
             className="rounded-xl"
-            disabled={!canAddMore || uploading || loading}
-            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            onClick={openCreateForm}
           >
-            {uploading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Plus className="mr-2 h-4 w-4" />
-            )}
-            {uploading ? "Uploading…" : "Add"}
+            <Plus className="mr-2 h-4 w-4" />
+            Add group
           </Button>
         </div>
       </motion.div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
-        multiple
-        className="hidden"
-        onChange={(e) => handleFiles(e.target.files)}
-      />
-
       {status && <StatusBanner status={status} />}
+
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+          <p className="text-sm font-medium text-foreground">
+            {selectedIds.size} selected
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-lg"
+              disabled={bulkDeleting || deletingId !== null}
+              onClick={clearSelection}
+            >
+              Clear
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="rounded-lg"
+              disabled={bulkDeleting || deletingId !== null}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 className="mr-1.5 h-4 w-4" />
+              Delete selected
+            </Button>
+          </div>
+        </div>
+      )}
 
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+        className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
       >
-        {uploading && (
-          <div
-            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/85 backdrop-blur-sm"
-            role="status"
-            aria-live="polite"
-            aria-busy="true"
-          >
-            <Loader2 className="h-10 w-10 animate-spin text-primary" />
-            <p className="text-sm font-medium text-foreground">
-              {uploadProgress
-                ? `Uploading image ${uploadProgress.current} of ${uploadProgress.total}…`
-                : "Preparing upload…"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Please wait, do not close this page
-            </p>
-          </div>
-        )}
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-12 pl-4">#</TableHead>
-              <TableHead className="w-24">Preview</TableHead>
-              <TableHead className="w-24">Size</TableHead>
-              <TableHead className="hidden w-32 sm:table-cell">Uploaded</TableHead>
-              <TableHead className="w-40 pr-4 text-right">Actions</TableHead>
+              <TableHead className="w-10 pl-4">
+                <Checkbox
+                  checked={
+                    allOnPageSelected
+                      ? true
+                      : someOnPageSelected
+                        ? "indeterminate"
+                        : false
+                  }
+                  onCheckedChange={(value) =>
+                    togglePageSelection(value === true)
+                  }
+                  disabled={loading || paginatedGroups.length === 0}
+                  aria-label="Select all on this page"
+                />
+              </TableHead>
+              <TableHead className="w-12">#</TableHead>
+              <TableHead className="w-24">Cover</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead className="w-28">Price</TableHead>
+              <TableHead className="hidden w-32 sm:table-cell">Created</TableHead>
+              <TableHead className="w-16 pr-4 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-16 text-center">
+                <TableCell colSpan={7} className="py-16 text-center">
                   <Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" />
                   <p className="mt-3 text-sm text-muted-foreground">
-                    Loading images…
+                    Loading groups…
                   </p>
                 </TableCell>
               </TableRow>
-            ) : images.length === 0 ? (
+            ) : groups.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-16 text-center">
+                <TableCell colSpan={7} className="py-16 text-center">
                   <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
-                    <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                    <FolderOpen className="h-8 w-8 text-muted-foreground" />
                   </div>
-                  <p className="font-medium text-foreground">No images yet</p>
+                  <p className="font-medium text-foreground">No groups yet</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Upload up to {MAX_SECTION_IMAGES} images (max 5MB each)
+                    Create a group with a cover image and Inside 1 (Inside 2 and
+                    video optional)
                   </p>
                   <Button
                     type="button"
                     variant="outline"
                     className="mt-4 rounded-xl"
-                    disabled={uploading}
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={openCreateForm}
                   >
-                    {uploading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Plus className="mr-2 h-4 w-4" />
-                    )}
-                    {uploading ? "Uploading…" : "Add"}
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add group
                   </Button>
                 </TableCell>
               </TableRow>
             ) : (
-              images.map((image, index) => (
-                <TableRow key={image.id}>
-                  <TableCell className="pl-4 font-medium text-muted-foreground">
-                    {index + 1}
+              paginatedGroups.map((group, index) => {
+                const rowNumber = (page - 1) * pageSize + index + 1;
+                const isSelected = selectedIds.has(group.id);
+
+                return (
+                <TableRow
+                  key={group.id}
+                  data-state={isSelected ? "selected" : undefined}
+                  className={isSelected ? "bg-muted/40" : undefined}
+                >
+                  <TableCell className="pl-4">
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={(value) =>
+                        toggleRow(group.id, value === true)
+                      }
+                      disabled={deletingId !== null || bulkDeleting}
+                      aria-label={`Select ${group.name}`}
+                    />
+                  </TableCell>
+                  <TableCell className="font-medium text-muted-foreground">
+                    {rowNumber}
                   </TableCell>
                   <TableCell>
                     <div className="relative h-14 w-14 overflow-hidden rounded-lg border border-border bg-muted">
-                      {image.previewUrl ? (
+                      {group.frontPreviewUrl ? (
                         <Image
-                          src={image.previewUrl}
-                          alt={`Image ${index + 1}`}
+                          src={group.frontPreviewUrl}
+                          alt={group.name}
                           fill
                           className="object-cover"
                           unoptimized
                         />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <ImageIcon className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                      )}
+                      ) : null}
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {image.sizeBytes > 0
-                      ? formatFileSize(image.sizeBytes)
-                      : "—"}
+                  <TableCell className="font-medium text-foreground">
+                    {group.name}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground tabular-nums">
+                    {formatGroupPrice(group.price)}
                   </TableCell>
                   <TableCell className="hidden text-muted-foreground sm:table-cell">
-                    {image.uploadDate}
+                    {group.createdAt}
                   </TableCell>
-                  <TableCell className="pr-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="rounded-lg"
-                        onClick={() => setPreviewImage(image)}
-                        disabled={!image.previewUrl || uploading}
-                      >
-                        <Eye className="mr-1.5 h-4 w-4" />
-                        View
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => setImageToDelete(image)}
-                        disabled={uploading || deletingId !== null}
-                      >
-                        <Trash2 className="mr-1.5 h-4 w-4" />
-                        Delete
-                      </Button>
-                    </div>
+                  <TableCell className="pr-4 text-right">
+                    <RowActionsMenu
+                      disabled={deletingId !== null || bulkDeleting}
+                      onView={() => setPreviewGroup(group)}
+                      onEdit={() => openEditForm(group)}
+                      onDelete={() => setGroupToDelete(group)}
+                    />
                   </TableCell>
                 </TableRow>
-              ))
+              );
+              })
             )}
           </TableBody>
         </Table>
 
-        {canAddMore && images.length > 0 && (
+        {groups.length > 0 && (
+          <div className="flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+              <span className="flex items-center gap-2">
+                Rows per page
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(value) => {
+                    setPageSize(Number(value) as PageSize);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[72px] rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZE_OPTIONS.map((size) => (
+                      <SelectItem key={size} value={String(size)}>
+                        {size}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </span>
+              <span>
+                {groups.length === 0
+                  ? "0 groups"
+                  : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, groups.length)} of ${groups.length}`}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-lg"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <span className="min-w-[88px] text-center text-sm text-muted-foreground">
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-lg"
+                disabled={page >= totalPages || loading}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {groups.length > 0 && (
           <div className="border-t border-border p-4">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading || loading}
+              onClick={openCreateForm}
+              disabled={loading}
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border py-4 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
-              {uploading
-                ? "Uploading…"
-                : `Add (${remainingSlots} slot${remainingSlots === 1 ? "" : "s"} left)`}
+              Add another group
             </button>
           </div>
         )}
       </motion.div>
 
       <p className="text-xs text-muted-foreground">
-        JPG, PNG, WebP, GIF · Max {MAX_SECTION_IMAGES} images · 5MB each
+        Images up to 10MB · Video up to 300MB · Unlimited groups per section
       </p>
 
       <AlertDialog
-        open={imageToDelete !== null}
+        open={bulkDeleteOpen}
         onOpenChange={(open) => {
-          if (!open && !deletingId) {
-            setImageToDelete(null);
+          if (!open && !bulkDeleting) {
+            setBulkDeleteOpen(false);
             setDeleteError(null);
           }
         }}
       >
         <AlertDialogContent className="rounded-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this image?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Delete {selectedIds.size} group
+              {selectedIds.size === 1 ? "" : "s"}?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove the image. This action cannot be
-              undone.
+              This will permanently remove all media for the selected groups.
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError && (
+            <div className="flex gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">Delete failed</p>
+                <p className="mt-0.5">{deleteError}</p>
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              className="rounded-xl"
+              disabled={bulkDeleting}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              className="rounded-xl"
+              disabled={bulkDeleting}
+              onClick={() => void confirmBulkDelete()}
+            >
+              {bulkDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                `Delete ${selectedIds.size}`
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={groupToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingId) {
+            setGroupToDelete(null);
+            setDeleteError(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this group?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove all files for &quot;
+              {groupToDelete?.name}&quot;. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteError && (
@@ -478,26 +669,100 @@ export function SectionImageTable({ section, title }: SectionImageTableProps) {
         </AlertDialogContent>
       </AlertDialog>
 
+      <GroupFormModal
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        mode={formMode}
+        section={section}
+        sectionTitle={title}
+        group={editingGroup}
+        onSaved={() => {
+          setStatus({
+            type: "success",
+            title: formMode === "edit" ? "Group updated" : "Group created",
+            message:
+              formMode === "edit"
+                ? "Your changes were saved."
+                : "Your group was saved successfully.",
+          });
+          void refreshGroups({ silent: true });
+        }}
+      />
+
       <Dialog
-        open={previewImage !== null}
+        open={previewGroup !== null}
         onOpenChange={(open) => {
-          if (!open) setPreviewImage(null);
+          if (!open) setPreviewGroup(null);
         }}
       >
-        <DialogContent className="max-w-4xl gap-0 overflow-hidden p-0 sm:max-w-4xl">
-          <DialogHeader className="sr-only">
-            <DialogTitle>Image preview</DialogTitle>
+        <DialogContent className="max-w-3xl gap-4 rounded-2xl p-4 sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-xl">
+              {previewGroup?.name}
+            </DialogTitle>
+            {previewGroup && (
+              <p className="text-sm text-muted-foreground">
+                {formatGroupPrice(previewGroup.price)}
+              </p>
+            )}
           </DialogHeader>
-          {previewImage?.previewUrl && (
-            <div className="relative mx-auto flex h-[min(70vh,680px)] w-full max-w-full items-center justify-center bg-muted/30 p-4 pt-12">
-              <Image
-                src={previewImage.previewUrl}
-                alt="Image preview"
-                width={1200}
-                height={800}
-                unoptimized
-                className="max-h-[min(70vh,680px)] w-auto max-w-full rounded-lg object-contain shadow-sm"
-              />
+          {previewGroup && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Front</p>
+                <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-muted">
+                  <Image
+                    src={previewGroup.frontPreviewUrl}
+                    alt="Front"
+                    fill
+                    unoptimized
+                    className="object-cover"
+                  />
+                </div>
+              </div>
+              {previewGroup.videoPreviewUrl ? (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Video</p>
+                  <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-muted">
+                    <video
+                      src={previewGroup.videoPreviewUrl}
+                      className="h-full w-full object-cover"
+                      controls
+                      playsInline
+                    />
+                  </div>
+                </div>
+              ) : null}
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Inside 1
+                </p>
+                <div className="relative aspect-[4/3] overflow-hidden rounded-lg border border-border bg-muted">
+                  <Image
+                    src={previewGroup.inside1PreviewUrl}
+                    alt="Inside 1"
+                    fill
+                    unoptimized
+                    className="object-cover"
+                  />
+                </div>
+              </div>
+              {previewGroup.inside2PreviewUrl ? (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Inside 2
+                  </p>
+                  <div className="relative aspect-[4/3] overflow-hidden rounded-lg border border-border bg-muted">
+                    <Image
+                      src={previewGroup.inside2PreviewUrl}
+                      alt="Inside 2"
+                      fill
+                      unoptimized
+                      className="object-cover"
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </DialogContent>
