@@ -31,6 +31,8 @@ export type UpdateGroupInput = {
   inside1?: File;
   inside2?: File;
   video?: File;
+  /** Clear optional media already stored for this group */
+  removeSlots?: Array<"inside-2" | "video">;
 };
 
 async function parseApiError(response: Response): Promise<string> {
@@ -264,6 +266,7 @@ export async function updateSectionGroup(
         name: input.name.trim(),
         price: input.price,
         files: filesPayload ?? undefined,
+        removeSlots: input.removeSlots?.length ? input.removeSlots : undefined,
       }),
     });
 

@@ -4,6 +4,7 @@ import {
   ACCEPTED_IMAGE_TYPES,
   ACCEPTED_VIDEO_TYPES,
   GROUP_MEDIA_SLOTS,
+  GROUP_OPTIONAL_MEDIA_SLOTS,
   MAX_IMAGE_SIZE_BYTES,
   MAX_VIDEO_SIZE_BYTES,
   type GroupMediaSlot,
@@ -117,6 +118,7 @@ export async function PATCH(
     name?: string;
     price?: number | string | null;
     files?: PartialGroupFilesPayload;
+    removeSlots?: string[];
   };
 
   try {
@@ -143,6 +145,27 @@ export async function PATCH(
     if (validationError) return jsonError(validationError, 400);
   }
 
+  const removeSlots: GroupMediaSlot[] = [];
+  for (const raw of body.removeSlots ?? []) {
+    if (!GROUP_MEDIA_SLOTS.includes(raw as GroupMediaSlot)) {
+      return jsonError(`Unknown media slot "${raw}".`, 400);
+    }
+    const slot = raw as GroupMediaSlot;
+    if (
+      !GROUP_OPTIONAL_MEDIA_SLOTS.includes(
+        slot as (typeof GROUP_OPTIONAL_MEDIA_SLOTS)[number]
+      )
+    ) {
+      return jsonError(`Cannot remove required media (${slot}).`, 400);
+    }
+    if (files[slot]) {
+      return jsonError(`Cannot remove and replace ${slot} in one request.`, 400);
+    }
+    if (!removeSlots.includes(slot)) {
+      removeSlots.push(slot);
+    }
+  }
+
   const updatePayload: Record<string, string | number | null> = {
     name,
     price,
@@ -150,6 +173,14 @@ export async function PATCH(
 
   const uploadUrls: Partial<Record<GroupMediaSlot, string>> = {};
   const oldKeysToDelete: string[] = [];
+
+  for (const slot of removeSlots) {
+    const oldKey = existing[SLOT_DB_KEY[slot]] as string | null;
+    updatePayload[SLOT_DB_KEY[slot]] = null;
+    if (oldKey) {
+      oldKeysToDelete.push(oldKey);
+    }
+  }
 
   for (const slot of slotsToReplace) {
     const descriptor = files[slot]!;
@@ -176,16 +207,29 @@ export async function PATCH(
     }
   }
 
-  const { data, error: updateError } = await supabase
+  const { error: updateError } = await supabase
     .from("decoration_groups")
     .update(updatePayload)
     .eq("id", id)
-    .eq("user_id", user.id)
-    .select("*")
-    .single();
+    .eq("user_id", user.id);
 
   if (updateError) {
+    if (updateError.code === "42P01") {
+      return jsonError(
+        "Groups table is not set up. Run supabase/decoration-groups.sql in Supabase.",
+        503
+      );
+    }
     return jsonError(updateError.message, 500);
+  }
+
+  const refreshed = await fetchOwnGroup(supabase, user.id, id);
+  if (refreshed.error || !refreshed.row) {
+    return jsonError(
+      refreshed.error ??
+        "Group was not updated. Ensure the decoration_groups update policy exists in Supabase (run supabase/decoration-groups.sql).",
+      refreshed.status === 200 ? 500 : refreshed.status
+    );
   }
 
   if (oldKeysToDelete.length > 0) {
@@ -196,7 +240,7 @@ export async function PATCH(
     }
   }
 
-  const group = await dbGroupToRecord(data as DbDecorationGroup);
+  const group = await dbGroupToRecord(refreshed.row);
 
   return NextResponse.json({ group, uploadUrls });
 }

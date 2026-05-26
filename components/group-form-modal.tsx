@@ -36,9 +36,15 @@ export interface GroupFormModalProps {
 type PickedFile = {
   file: File | null;
   previewUrl: string | null;
+  /** User cleared an existing remote asset (edit mode). */
+  removeExisting: boolean;
 };
 
-const emptyPick = (): PickedFile => ({ file: null, previewUrl: null });
+const emptyPick = (): PickedFile => ({
+  file: null,
+  previewUrl: null,
+  removeExisting: false,
+});
 
 function useFilePick() {
   const [pick, setPick] = useState<PickedFile>(emptyPick);
@@ -49,13 +55,19 @@ function useFilePick() {
         URL.revokeObjectURL(prev.previewUrl);
       }
       if (!file) {
-        return prev.previewUrl && !prev.previewUrl.startsWith("blob:")
-          ? { file: null, previewUrl: prev.previewUrl }
-          : emptyPick();
+        const wasRemote = Boolean(
+          prev.previewUrl && !prev.previewUrl.startsWith("blob:")
+        );
+        return {
+          file: null,
+          previewUrl: null,
+          removeExisting: prev.removeExisting || wasRemote,
+        };
       }
       return {
         file,
         previewUrl: URL.createObjectURL(file),
+        removeExisting: false,
       };
     });
   }, []);
@@ -65,7 +77,9 @@ function useFilePick() {
       if (prev.previewUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(prev.previewUrl);
       }
-      return url ? { file: null, previewUrl: url } : emptyPick();
+      return url
+        ? { file: null, previewUrl: url, removeExisting: false }
+        : emptyPick();
     });
   }, []);
 
@@ -196,6 +210,10 @@ export function GroupFormModal({
         setProgress({ current: 0, total: slotsToUpload });
       }
 
+      const removeSlots: ("inside-2" | "video")[] = [];
+      if (insideImage2.removeExisting) removeSlots.push("inside-2");
+      if (video.removeExisting) removeSlots.push("video");
+
       const { group: updated, error: updateError } = await updateSectionGroup(
         {
           id: group.id,
@@ -205,6 +223,7 @@ export function GroupFormModal({
           inside1: insideImage1.file ?? undefined,
           inside2: insideImage2.file ?? undefined,
           video: video.file ?? undefined,
+          removeSlots: removeSlots.length > 0 ? removeSlots : undefined,
         },
         (current, total) => setProgress({ current, total })
       );
