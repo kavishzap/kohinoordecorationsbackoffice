@@ -38,14 +38,14 @@ export const DECOR_SECTIONS: DecorSectionConfig[] = [
   },
   {
     slug: "nikka-decor",
-    title: "Nikka Decor",
-    sidebarLabel: "Nikka Decor",
+    title: "Nikah Decor",
+    sidebarLabel: "Nikah Decor",
     icon: Sparkles,
   },
   {
     slug: "entrance",
     title: "Entrance Décor",
-    sidebarLabel: "Entrance",
+    sidebarLabel: "Entrance and Alley Decor",
     icon: DoorOpen,
   },
   {

@@ -115,16 +115,14 @@ export function DashboardContent() {
             ))}
       </div>
 
-      {!loading && kpis && (
+      {!loading && storageNote && (
         <p
           className={cn(
             "text-center text-xs text-muted-foreground sm:text-left",
             storageNote && "text-amber-700 dark:text-amber-400"
           )}
         >
-          {storageNote
-            ? storageNote
-            : `${kpis.totalGroups} group${kpis.totalGroups === 1 ? "" : "s"} across ${kpis.sectionsCount} sections · ${formatFileSize(kpis.storageUsedBytes)} on Cloudflare R2`}
+          {storageNote}
         </p>
       )}
     </div>
